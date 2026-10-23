@@ -1,0 +1,10 @@
+{
+  "domain": "nextcloud_calendar_tags",
+  "name": "Nextcloud Calendar Tags",
+  "version": "0.1.0",
+  "documentation": "https://github.com/PrincesseClafoutis/ha-nextcloud-calendar-tags",
+  "issue_tracker": "https://github.com/PrincesseClafoutis/ha-nextcloud-calendar-tags/issues",
+  "codeowners": ["@PrincesseClafoutis"],
+  "requirements": ["caldav==1.3.9"],
+  "iot_class": "local_polling"
+}
