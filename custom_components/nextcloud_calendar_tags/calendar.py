@@ -4,10 +4,12 @@ from __future__ import annotations
 import logging
 import datetime
 import caldav
+import functools
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 
@@ -65,49 +67,69 @@ class NextcloudCalendarEntity(CalendarEntity):
 
             calendar = calendars[0]
             results = await hass.async_add_executor_job(
-                calendar.search, start_date, end_date, True, True
+                functools.partial (
+                    calendar.search, 
+                    start=start_date, 
+                    end=end_date, 
+                    event=True, 
+                    expand=False
+                )
             )
+            _LOGGER.debug("%s événements bruts reçus de Nextcloud.", len(results))
 
             for ev in results:
-                comp = ev.icalendar_component
+                try:
+                    comp = ev.icalendar_component
 
-                start = comp.get("dtstart")
-                end = comp.get("dtend") or start
+                    start = comp.get("dtstart")
+                    end = comp.get("dtend") or start
 
-                if start is None:
-                    _LOGGER.warning("Événement sans date de début ignoré.")
-                    continue
+                    if start is None:
+                        _LOGGER.warning("Événement sans date de début ignoré.")
+                        continue
 
-                summary = comp.get("summary") or "Sans titre"
-                description = comp.get("description") or ""
-                location = comp.get("location") or ""
+                    summary = comp.get("summary") or "Sans titre"
+                    description = comp.get("description") or ""
+                    location = comp.get("location") or ""
 
-                categories = comp.get("categories", [])
-                tags = []
-                if categories:
-                    if isinstance(categories, list):
-                        tags = [str(c) for c in categories]
-                    else:
-                        try:
+                    categories = comp.get("categories", [])
+                    tags = []
+                    if categories:
+                        if isinstance(categories, list):
                             tags = [str(c) for c in categories]
-                        except Exception:
-                            tags = [str(categories)]
+                        else:
+                            try:
+                                tags = [str(c) for c in categories]
+                            except Exception:
+                                tags = [str(categories)]
 
-                if tags:
-                    final_description = f"[TAGS: {', '.join(tags)}] {description}"
-                else:
-                    final_description = description
+                    if tags:
+                        final_description = f"[TAGS: {', '.join(tags)}] {description}"
+                    else:
+                        final_description = description
 
-                event = CalendarEvent(
-                    start=start.dt,
-                    end=end.dt,
-                    summary=str(summary),
-                    description=final_description,
-                    location=str(location),
-                )
-                events.append(event)
+                    if isinstance(start.dt, datetime.date) and not isinstance(start.dt, datetime.datetime):
+                        event = CalendarEvent(
+                            start=start.dt,
+                            end=end.dt,
+                            summary=str(summary),
+                            description=final_description,
+                            location=str(location),
+                        )
+                    else:
+                        event = CalendarEvent(
+                            start=start.dt,
+                            end=end.dt,
+                            summary=str(summary),
+                            description=final_description,
+                            location=str(location),
+                        )
+                    events.append(event)
+                except Exception as ev_error:
+                    _LOGGER.error("Erreur lors de l'analyse d'un événement : %s", ev_error)
 
         except Exception as e:
             _LOGGER.error("Erreur lors de la récupération des événements Nextcloud : %s", e)
 
+        events.sort(key=lambda e: e.start)
         return events
