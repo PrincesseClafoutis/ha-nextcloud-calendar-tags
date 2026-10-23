@@ -2,7 +2,6 @@
 import voluptuous as vol
 import caldav
 from homeassistant import config_entries
-from homeassistant.core import callback
 
 from .const import DOMAIN
 
@@ -20,8 +19,7 @@ class NextcloudCalendarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     username=user_input["username"],
                     password=user_input["password"],
                 )
-                principal = client.principal()
-                calendars = principal.calendars()
+                await self.hass.async_add_executor_job(client.principal)
                 
                 return self.async_create_entry(title="Nextcloud Calendar", data=user_input)
             except Exception:
