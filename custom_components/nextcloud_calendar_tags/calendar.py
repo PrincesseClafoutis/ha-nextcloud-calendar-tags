@@ -31,7 +31,7 @@ class NextcloudCalendarEntity(CalendarEntity):
         self._url = config_data["url"]
         self._username = config_data["username"]
         self._password = config_data["password"]
-        self._name = "Nextcloud Princesse Clafoutis"
+        self._name = config_data.get("calendar_name", "Nextcloud Calendar")
         self._event = None
         self._attr_unique_id = f"{DOMAIN}_{self._username}"
 
@@ -55,38 +55,52 @@ class NextcloudCalendarEntity(CalendarEntity):
             principal = client.principal()
             calendars = principal.calendars()
             if not calendars:
+                _LOGGER.warning("Aucun calendrier trouvé sur le serveur Nextcloud.")
                 return []
-            
-            calendar = calendars[0] 
-            
-            results = calendar.search(start=start_date, end=end_date, event=True, expand=True)
-            
-            for ev in results:
-                summary = ev.icalendar_component.get('summary', 'Sans titre')
-                description = ev.icalendar_component.get('description', '')
 
-                categories = ev.icalendar_component.get('categories', [])
-                tags_str = ""
+            calendar = calendars[0]
+
+            results = calendar.search(start=start_date, end=end_date, event=True, expand=True)
+
+            for ev in results:
+                comp = ev.icalendar_component
+
+                start = comp.get("dtstart")
+                end = comp.get("dtend") or start
+
+                if start is None:
+                    _LOGGER.warning("Événement sans date de début ignoré.")
+                    continue
+
+                summary = comp.get("summary") or "Sans titre"
+                description = comp.get("description") or ""
+                location = comp.get("location") or ""
+
+                categories = comp.get("categories", [])
+                tags = []
                 if categories:
                     if isinstance(categories, list):
-                        tags_str = ", ".join([str(c) for c in categories])
+                        tags = [str(c) for c in categories]
                     else:
-                        tags_str = str(categories)
+                        try:
+                            tags = [str(c) for c in categories]
+                        except Exception:
+                            tags = [str(categories)]
 
-                if tags_str:
-                    final_description = f"[TAGS: {tags_str}] {description}"
+                if tags:
+                    final_description = f"[TAGS: {', '.join(tags)}] {description}"
                 else:
                     final_description = description
 
                 event = CalendarEvent(
-                    start=ev.icalendar_component.get('dtstart').dt,
-                    end=ev.icalendar_component.get('dtend').dt,
+                    start=start.dt,
+                    end=end.dt,
                     summary=str(summary),
                     description=final_description,
-                    location=str(ev.icalendar_component.get('location', '')),
+                    location=str(location),
                 )
                 events.append(event)
-                
+
         except Exception as e:
             _LOGGER.error("Erreur lors de la récupération des événements Nextcloud : %s", e)
 
