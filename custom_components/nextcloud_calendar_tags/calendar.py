@@ -44,8 +44,20 @@ class NextcloudCalendarEntity(CalendarEntity):
 
     @property
     def event(self) -> CalendarEvent | None:
-        """Retourne l'événement actuel."""
+        """Retourne le prochain événement."""
         return self._event
+
+    async def async_update(self) -> None:
+        """Récupère le prochain événement pour mettre à jour l'état."""
+        now = dt_util.now()
+        events = await self.async_get_events(self.hass, now, now + datetime.timedelta(days=30))
+        if events:
+            events.sort(key=lambda e: e.start)
+            self._event = events[0]
+            _LOGGER.debug("Prochain événement trouvé : %s le %s", self._event.summary, self._event.start)
+        else:
+            self._event = None
+            _LOGGER.debug("Aucun événement à venir trouvé dans les 30 prochains jours.")
 
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime.datetime, end_date: datetime.datetime
