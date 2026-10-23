@@ -18,6 +18,7 @@ class NextcloudCalendarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     url=user_input["url"],
                     username=user_input["username"],
                     password=user_input["password"],
+                    ssl_verify_cert=False,
                 )
                 await self.hass.async_add_executor_job(client.principal)
                 

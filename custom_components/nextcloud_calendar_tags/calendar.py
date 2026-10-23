@@ -31,7 +31,7 @@ class NextcloudCalendarEntity(CalendarEntity):
         self._url = config_data["url"]
         self._username = config_data["username"]
         self._password = config_data["password"]
-        self._name = config_data.get("calendar_name", "Nextcloud Calendar")
+        self._name = "Nextcloud Laure"
         self._event = None
         self._attr_unique_id = f"{DOMAIN}_{self._username}"
 
@@ -51,16 +51,22 @@ class NextcloudCalendarEntity(CalendarEntity):
         """Récupérer les événements et extraire les tags (catégories)."""
         events = []
         try:
-            client = caldav.DAVClient(url=self._url, username=self._username, password=self._password)
-            principal = client.principal()
-            calendars = principal.calendars()
+            client = caldav.DAVClient(
+                url=self._url,
+                username=self._username,
+                password=self._password,
+                ssl_verify_cert=False,
+            )
+            principal = await hass.async_add_executor_job(client.principal)
+            calendars = await hass.async_add_executor_job(principal.calendars)
             if not calendars:
                 _LOGGER.warning("Aucun calendrier trouvé sur le serveur Nextcloud.")
                 return []
 
             calendar = calendars[0]
-
-            results = calendar.search(start=start_date, end=end_date, event=True, expand=True)
+            results = await hass.async_add_executor_job(
+                calendar.search, start_date, end_date, True, True
+            )
 
             for ev in results:
                 comp = ev.icalendar_component
