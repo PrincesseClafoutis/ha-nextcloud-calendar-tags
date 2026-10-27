@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-import caldav
+from importlib import import_module
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady

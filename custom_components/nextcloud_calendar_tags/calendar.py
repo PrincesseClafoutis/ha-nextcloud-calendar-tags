@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 import datetime
-import caldav
 import functools
+import importlib
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -65,6 +65,7 @@ class NextcloudCalendarEntity(CalendarEntity):
         """Récupérer les événements et extraire les tags (catégories)."""
         events = []
         try:
+            caldav = importlib.import_module("caldav")
             client = caldav.DAVClient(
                 url=self._url,
                 username=self._username,
