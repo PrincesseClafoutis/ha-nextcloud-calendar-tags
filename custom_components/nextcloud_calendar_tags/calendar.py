@@ -80,12 +80,12 @@ class NextcloudCalendarEntity(CalendarEntity):
 
             calendar = calendars[0]
             results = await hass.async_add_executor_job(
-                functools.partial (
-                    calendar.search, 
-                    start=start_date, 
-                    end=end_date, 
-                    event=True, 
-                    expand=False
+                functools.partial(
+                    calendar.search,
+                    start=start_date,
+                    end=end_date,
+                    event=True,
+                    expand=False,
                 )
             )
             _LOGGER.debug("%s événements bruts reçus de Nextcloud.", len(results))

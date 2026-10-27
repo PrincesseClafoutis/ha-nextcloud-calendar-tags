@@ -19,7 +19,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             url=entry.data["url"],
             username=entry.data["username"],
             password=entry.data["password"],
-            ssl_verify_cert=False,  # <-- LA LIGNE À AJOUTER
+            ssl_verify_cert=False,
         )
         await hass.async_add_executor_job(client.principal)
     except Exception as ex:
