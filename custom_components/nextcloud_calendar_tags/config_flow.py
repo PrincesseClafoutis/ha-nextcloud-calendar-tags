@@ -19,7 +19,7 @@ class NextcloudCalendarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     username=user_input["username"],
                     password=user_input["password"],
                     ssl_verify_cert=False,
-                )
+                ) # pyright: ignore[reportCallIssue]
                 await self.hass.async_add_executor_job(client.principal)
                 
                 return self.async_create_entry(title="Nextcloud Calendar", data=user_input)
@@ -34,6 +34,6 @@ class NextcloudCalendarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("username"): str,
                     vol.Required("password"): str,
                 }
-            ),
+            ), # pyright: ignore[reportArgumentType]
             errors=errors,
         )

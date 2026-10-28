@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 import datetime
+import caldav
 import functools
-import importlib
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -64,14 +64,14 @@ class NextcloudCalendarEntity(CalendarEntity):
     ) -> list[CalendarEvent]:
         """Récupérer les événements et extraire les tags (catégories)."""
         events = []
+        client = None
         try:
-            caldav = importlib.import_module("caldav")
             client = caldav.DAVClient(
                 url=self._url,
                 username=self._username,
                 password=self._password,
                 ssl_verify_cert=False,
-            )
+            ) # type: ignore
             principal = await hass.async_add_executor_job(client.principal)
             calendars = await hass.async_add_executor_job(principal.calendars)
             if not calendars:
@@ -80,13 +80,13 @@ class NextcloudCalendarEntity(CalendarEntity):
 
             calendar = calendars[0]
             results = await hass.async_add_executor_job(
-                functools.partial(
-                    calendar.search,
-                    start=start_date,
-                    end=end_date,
-                    event=True,
-                    expand=False,
-                )
+                functools.partial (
+                    calendar.search, 
+                    start=start_date, 
+                    end=end_date, 
+                    event=True, 
+                    expand=False
+                )  # <-- On désactive l'expansion
             )
             _LOGGER.debug("%s événements bruts reçus de Nextcloud.", len(results))
 
@@ -143,6 +143,9 @@ class NextcloudCalendarEntity(CalendarEntity):
 
         except Exception as e:
             _LOGGER.error("Erreur lors de la récupération des événements Nextcloud : %s", e)
+        finally:
+            if client:
+                await hass.async_add_executor_job(client.close)
 
         events.sort(key=lambda e: e.start)
         return events

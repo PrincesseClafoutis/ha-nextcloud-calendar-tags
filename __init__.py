@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import logging
-from importlib import import_module
+import caldav
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from .const import DOMAIN
+from .const import DOMAIN # pyright: ignore[reportMissingImports]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             url=entry.data["url"],
             username=entry.data["username"],
             password=entry.data["password"],
-            ssl_verify_cert=False,
-        )
+            ssl_verify_cert=False,  # <-- LA LIGNE À AJOUTER
+        ) # pyright: ignore[reportCallIssue]
         await hass.async_add_executor_job(client.principal)
     except Exception as ex:
         _LOGGER.warning("Impossible de se connecter à Nextcloud : %s", ex)
