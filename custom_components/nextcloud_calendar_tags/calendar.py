@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import datetime
 import caldav
-import functools
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -14,138 +13,143 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+SCAN_INTERVAL = datetime.timedelta(minutes=15)
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Configurer la plateforme calendrier."""
     config_data = hass.data[DOMAIN][config_entry.entry_id]
     async_add_entities([NextcloudCalendarEntity(config_data)], True)
 
 
 class NextcloudCalendarEntity(CalendarEntity):
-    """Représentation d'un calendrier Nextcloud."""
-
     def __init__(self, config_data: dict) -> None:
-        """Initialiser l'entité."""
         self._url = config_data["url"]
         self._username = config_data["username"]
         self._password = config_data["password"]
-        self._name = "Nextcloud Laure"
+        self._calendar_name = config_data["calendar_name"] # <-- Le calendrier choisi
+        self._name = f"Nextcloud {self._calendar_name}"
         self._event = None
-        self._attr_unique_id = f"{DOMAIN}_{self._username}"
+        self._attr_unique_id = f"{DOMAIN}_{self._username}_{self._calendar_name}"
+        self._cache: dict[tuple[datetime.datetime, datetime.datetime], list[CalendarEvent]] = {}
 
     @property
     def name(self) -> str:
-        """Nom de l'entité."""
         return self._name
 
     @property
     def event(self) -> CalendarEvent | None:
-        """Retourne le prochain événement."""
         return self._event
 
     async def async_update(self) -> None:
-        """Récupère le prochain événement pour mettre à jour l'état."""
         now = dt_util.now()
-        events = await self.async_get_events(self.hass, now, now + datetime.timedelta(days=30))
+        start_of_day = dt_util.start_of_local_day(now)
+        end_of_day = start_of_day + datetime.timedelta(days=1)
+        
+        events = await self.async_get_events(self.hass, start_of_day, end_of_day)
+        
         if events:
-            events.sort(key=lambda e: e.start)
-            self._event = events[0]
-            _LOGGER.debug("Prochain événement trouvé : %s le %s", self._event.summary, self._event.start)
-        else:
-            self._event = None
-            _LOGGER.debug("Aucun événement à venir trouvé dans les 30 prochains jours.")
+            future_events = [e for e in events if e.end > now]
+            if future_events:
+                future_events.sort(key=lambda e: e.start)
+                self._event = future_events[0]
+                return
+        self._event = None
 
     async def async_get_events(
         self, hass: HomeAssistant, start_date: datetime.datetime, end_date: datetime.datetime
     ) -> list[CalendarEvent]:
-        """Récupérer les événements et extraire les tags (catégories)."""
-        events = []
-        client = None
-        try:
-            client = caldav.DAVClient(
-                url=self._url,
-                username=self._username,
-                password=self._password,
-                ssl_verify_cert=False,
-            ) # type: ignore
-            principal = await hass.async_add_executor_job(client.principal)
-            calendars = await hass.async_add_executor_job(principal.calendars)
-            if not calendars:
-                _LOGGER.warning("Aucun calendrier trouvé sur le serveur Nextcloud.")
-                return []
+        
+        cache_key = (start_date, end_date)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
-            calendar = calendars[0]
-            results = await hass.async_add_executor_job(
-                functools.partial (
-                    calendar.search, 
-                    start=start_date, 
-                    end=end_date, 
-                    event=True, 
-                    expand=False
-                )  # <-- On désactive l'expansion
-            )
-            _LOGGER.debug("%s événements bruts reçus de Nextcloud.", len(results))
+        def _fetch_events():
+            client = None
+            events_list = []
+            try:
+                client = caldav.DAVClient(
+                    url=self._url,
+                    username=self._username,
+                    password=self._password,
+                    ssl_verify_cert=False,
+                ) # type: ignore
+                principal = client.principal()
+                calendars = principal.calendars()
+                
+                # --- RECHERCHE DU BON CALENDRIER ---
+                calendar = None
+                for cal in calendars:
+                    if cal.name == self._calendar_name:
+                        calendar = cal
+                        break
+                
+                if not calendar:
+                    _LOGGER.error("Calendrier '%s' introuvable sur le serveur !", self._calendar_name)
+                    return []
+                
+                _LOGGER.debug("Interrogation du calendrier : %s", calendar.name)
+                results = calendar.search(
+                    start=start_date, end=end_date, event=True, expand=False
+                )
 
-            for ev in results:
-                try:
-                    comp = ev.icalendar_component
+                for ev in results:
+                    try:
+                        comp = ev.icalendar_component
+                        start = comp.get("dtstart")
+                        end = comp.get("dtend") or start
+                        if start is None:
+                            continue
 
-                    start = comp.get("dtstart")
-                    end = comp.get("dtend") or start
-
-                    if start is None:
-                        _LOGGER.warning("Événement sans date de début ignoré.")
-                        continue
-
-                    summary = comp.get("summary") or "Sans titre"
-                    description = comp.get("description") or ""
-                    location = comp.get("location") or ""
-
-                    categories = comp.get("categories", [])
-                    tags = []
-                    if categories:
-                        if isinstance(categories, list):
-                            tags = [str(c) for c in categories]
+                        if isinstance(start.dt, datetime.date) and not isinstance(start.dt, datetime.datetime):
+                            start_dt = dt_util.start_of_local_day(start.dt)
+                            end_dt = dt_util.start_of_local_day(end.dt) + datetime.timedelta(days=1)
                         else:
-                            try:
+                            start_dt = start.dt
+                            end_dt = end.dt
+
+                        summary = str(comp.get("summary") or "Sans titre")
+                        description = str(comp.get("description") or "")
+                        location = str(comp.get("location") or "")
+
+                        categories = comp.get("categories", [])
+                        tags = []
+                        if categories:
+                            if isinstance(categories, list):
                                 tags = [str(c) for c in categories]
-                            except Exception:
-                                tags = [str(categories)]
+                            else:
+                                try:
+                                    tags = [str(c) for c in categories]
+                                except Exception:
+                                    tags = [str(categories)]
 
-                    if tags:
-                        final_description = f"[TAGS: {', '.join(tags)}] {description}"
-                    else:
-                        final_description = description
+                        if tags:
+                            final_description = f"[TAGS: {', '.join(tags)}] {description}"
+                        else:
+                            final_description = description
 
-                    if isinstance(start.dt, datetime.date) and not isinstance(start.dt, datetime.datetime):
-                        event = CalendarEvent(
-                            start=start.dt,
-                            end=end.dt,
-                            summary=str(summary),
+                        events_list.append(CalendarEvent(
+                            start=start_dt,
+                            end=end_dt,
+                            summary=summary,
                             description=final_description,
-                            location=str(location),
-                        )
-                    else:
-                        event = CalendarEvent(
-                            start=start.dt,
-                            end=end.dt,
-                            summary=str(summary),
-                            description=final_description,
-                            location=str(location),
-                        )
-                    events.append(event)
-                except Exception as ev_error:
-                    _LOGGER.error("Erreur lors de l'analyse d'un événement : %s", ev_error)
+                            location=location,
+                        ))
+                    except Exception as ev_error:
+                        _LOGGER.error("Erreur sur un événement : %s", ev_error)
+            except Exception as e:
+                _LOGGER.error("Erreur de connexion Nextcloud : %s", e)
+            finally:
+                if client:
+                    client.close()
+            return events_list
 
-        except Exception as e:
-            _LOGGER.error("Erreur lors de la récupération des événements Nextcloud : %s", e)
-        finally:
-            if client:
-                await hass.async_add_executor_job(client.close)
+        events = await hass.async_add_executor_job(_fetch_events)
 
-        events.sort(key=lambda e: e.start)
+        if len(self._cache) > 5:
+            self._cache.pop(next(iter(self._cache)))
+        self._cache[cache_key] = events
+
         return events
